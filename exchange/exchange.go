@@ -138,7 +138,7 @@ func (e *exchange) HoldAuction(ctx context.Context, bidRequest *openrtb.BidReque
 	// Get currency rates conversions for the auction
 	conversions := e.currencyConverter.Rates()
 
-	adapterBids, adapterExtra, anyBidsReturned := e.getAllBids(auctionCtx, cleanRequests, aliases, bidAdjustmentFactors, blabels, conversions)
+	adapterBids, adapterExtra, anyBidsReturned := e.getAllBids(auctionCtx, cleanRequests, aliases, bidAdjustmentFactors, blabels, conversions, requestExt)
 
 	var auc *auction = nil
 	if anyBidsReturned {
@@ -185,7 +185,7 @@ func (e *exchange) makeAuctionContext(ctx context.Context, needsCache bool) (auc
 }
 
 // This piece sends all the requests to the bidder adapters and gathers the results.
-func (e *exchange) getAllBids(ctx context.Context, cleanRequests map[openrtb_ext.BidderName]*openrtb.BidRequest, aliases map[string]string, bidAdjustments map[string]float64, blabels map[openrtb_ext.BidderName]*pbsmetrics.AdapterLabels, conversions currencies.Conversions) (map[openrtb_ext.BidderName]*pbsOrtbSeatBid, map[openrtb_ext.BidderName]*seatResponseExtra, bool) {
+func (e *exchange) getAllBids(ctx context.Context, cleanRequests map[openrtb_ext.BidderName]*openrtb.BidRequest, aliases map[string]string, bidAdjustments map[string]float64, blabels map[openrtb_ext.BidderName]*pbsmetrics.AdapterLabels, conversions currencies.Conversions, reqExt openrtb_ext.ExtRequest) (map[openrtb_ext.BidderName]*pbsOrtbSeatBid, map[openrtb_ext.BidderName]*seatResponseExtra, bool) {
 	// Set up pointers to the bid results
 	adapterBids := make(map[openrtb_ext.BidderName]*pbsOrtbSeatBid, len(cleanRequests))
 	adapterExtra := make(map[openrtb_ext.BidderName]*seatResponseExtra, len(cleanRequests))
@@ -194,6 +194,7 @@ func (e *exchange) getAllBids(ctx context.Context, cleanRequests map[openrtb_ext
 
 	for bidderName, req := range cleanRequests {
 		// Here we actually call the adapters and collect the bids.
+		updateReqExt(bidderName, req, reqExt)
 		coreBidder := resolveBidder(string(bidderName), aliases)
 		bidderRunner := e.recoverSafely(func(aName openrtb_ext.BidderName, coreBidder openrtb_ext.BidderName, request *openrtb.BidRequest, bidlabels *pbsmetrics.AdapterLabels, conversions currencies.Conversions) {
 			// Passing in aName so a doesn't change out from under the go routine
@@ -254,6 +255,21 @@ func (e *exchange) getAllBids(ctx context.Context, cleanRequests map[openrtb_ext
 	}
 
 	return adapterBids, adapterExtra, bidsFound
+}
+
+func updateReqExt(name openrtb_ext.BidderName, request *openrtb.BidRequest, request2 openrtb_ext.ExtRequest) {
+	var data map[string]map[string]interface{}
+	extData, _ := request2.Bidderparams.MarshalJSON()
+	_ = json.Unmarshal(extData, &data)
+	var requiredData map[string]interface{}
+	original, _ := request.Ext.MarshalJSON()
+	_ = json.Unmarshal(original, &requiredData)
+	valueToAdd := data[name.String()]
+	for k, v := range valueToAdd {
+		requiredData[k] = v
+	}
+	r, _ := json.Marshal(requiredData)
+	request.Ext = r
 }
 
 func (e *exchange) recoverSafely(inner func(openrtb_ext.BidderName, openrtb_ext.BidderName, *openrtb.BidRequest, *pbsmetrics.AdapterLabels, currencies.Conversions), chBids chan *bidResponseWrapper) func(openrtb_ext.BidderName, openrtb_ext.BidderName, *openrtb.BidRequest, *pbsmetrics.AdapterLabels, currencies.Conversions) {

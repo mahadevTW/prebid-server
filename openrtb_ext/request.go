@@ -7,7 +7,8 @@ import (
 
 // ExtRequest defines the contract for bidrequest.ext
 type ExtRequest struct {
-	Prebid ExtRequestPrebid `json:"prebid"`
+	Prebid       ExtRequestPrebid `json:"prebid"`
+	Bidderparams json.RawMessage  `json:"bidderparams"`
 }
 
 // ExtRequestPrebid defines the contract for bidrequest.ext.prebid
